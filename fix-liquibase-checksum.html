@@ -1,0 +1,86 @@
+<html>
+<head>
+    <title>FIX LIQUIBASE CHECKSUM</title>
+    <script>
+        function parseInput(input) {
+            const lines = input.split('\n');
+            let output = '';
+
+            for (line of lines) {
+                line = line.trim();
+
+                if (!line) {
+                    continue;
+                }
+
+                const parts = line.split(' ');
+
+                if (parts.length && parts.length === 4) {
+                    const filenameIdAuthor = parts[0].split('::');
+                    const filename = filenameIdAuthor[0];
+                    const id = filenameIdAuthor[1];
+                    const author = filenameIdAuthor[2];
+                    const md5sum = parts[3];
+
+                    output += `update databasechangelog set md5sum='${md5sum}' where filename='${filename}' and author='${author}' and id='${id}';\n`;
+                } else {
+                    alert("Ошибка в строке " + line);
+                }
+            }
+
+            return output;
+        }
+
+        function submit() {
+            const input = document.getElementById('input').value;
+            const outputElem = document.getElementById('output');
+
+            outputElem.value = parseInput(input);
+        }
+
+    </script>
+
+    <style>
+        .fix-wrapper {
+            display: flex;
+        }
+
+        .fix-item {
+            flex: 1 0 auto;
+        }
+
+        .fix-item textarea {
+            width: 100%;
+            height: 500px;
+        }
+
+        .fix-divider {
+            flex: 0 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+        }
+    </style>
+</head>
+
+<body>
+    <div>
+        Copy errors from console:
+    </div>
+    <div class="fix-wrapper">
+        <div class="fix-item">
+            <label for="input"></label><textarea id="input"></textarea>
+        </div>
+        <div class="fix-divider">
+            <button id="submit" onclick="submit()">
+                Fix -->
+            </button>
+        </div>
+        <div class="fix-item">
+            <label for="output"></label><textarea id="output"></textarea>
+        </div>
+    </div>
+</body>
+
+</html>
