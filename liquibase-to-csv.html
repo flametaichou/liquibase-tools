@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Liquibase to CSV</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fast-xml-parser/4.3.6/fxparser.min.js"></script>
+    <script>
+        const parser = new window.XMLParser({
+            ignoreAttributes: false,
+            attributeNamePrefix : '$'
+        });
+
+        let xml = '';
+        let parsedXml = {};
+        let changesets = [];
+
+        const codesMap = {
+            'sql': 'SQL executed',
+            'modifySql': 'Modified SQL',
+            'addNotNullConstraint': 'Added Not Null Constraint',
+            'addUniqueConstraint': 'Added Unique Constraint',
+            'addForeignKeyConstraint': 'Added FK Constraint',
+            'createTable': 'Created table',
+            'insert': 'Inserted rows',
+            'addColumn': 'Added column',
+            'update': 'Updated rows',
+            'createIndex': 'Added index',
+            'modifyDataType': 'Changed data type',
+            'addAutoIncrement': 'Added auto-increment',
+            'dropColumn': 'Deleted column',
+            'dropPrimaryKey': 'Deleted Primary Key',
+            'createSequence': 'Created sequence',
+            'dropNotNullConstraint': 'Deleted Not Null Constraint',
+            'dropForeignKeyConstraint': 'Deleted FK Constraint',
+            'dropUniqueConstraint': 'Deleted Unique Constraint',
+            'dropTable': 'Deleted table'
+        };
+
+        function i18n(code) {
+            return codesMap[code] || code;
+        }
+
+        function summ(array) {
+            return array.reduce((partialSum, a) => partialSum + a, 0);
+        }
+
+        function readXml(event) {
+            const reader = new FileReader();
+            reader.addEventListener('load', (event) => {
+                xml = event.target.result;
+                parsedXml = parser.parse(xml);
+
+                if (!parsedXml.databaseChangeLog || !parsedXml.databaseChangeLog.changeSet) {
+                    alert('Empty changelog!');
+                    return;
+                }
+
+                changesets = parsedXml.databaseChangeLog.changeSet.map((c) => {
+                    const changeset = {};
+
+                    changeset.id = c.$id;
+                    changeset.author = c.$author;
+                    changeset.comment = c.comment || '';
+                    changeset.actions = [];
+
+                    for (const key of Object.keys(c)) {
+                        if (!key.startsWith('$') && !['comment', 'preConditions', 'sqlFile'].includes(key)) {
+                            // There can be one tag or multiple tags
+                            const tags = Array.isArray(c[key]) ? c[key] : [c[key]];
+                            for (const raw of tags) {
+                                const action = { type: key, raw: raw };
+
+                                action.table = raw.$tableName || raw.$baseTableName || '';
+                                if (raw.$referencedTableName) {
+                                    action.table += ` (${raw.$referencedTableName})`
+                                }
+                                action.condition = raw.where || '';
+                                action.columns = [];
+
+                                if (raw.column) {
+                                    // There can be one column or multiple column
+                                    const columns = Array.isArray(raw.column) ? raw.column : [raw.column];
+                                    for (const addColumnRaw of columns) {
+                                        const column = {};
+                                        column.name = addColumnRaw.$name || '';
+                                        column.value = addColumnRaw.$value || addColumnRaw['#text'] || '';
+                                        action.columns.push(column);
+                                    }
+
+                                } else {
+                                    const column = { };
+                                    column.name = raw.$columnName || raw.$columnNames || raw.$baseColumnNames || '';
+                                    if (raw.$referencedColumnNames) {
+                                        column.name += ` (${raw.$referencedColumnNames})`
+                                    }
+
+                                    column.value = typeof raw === 'string' ? raw : raw.$value || raw['#text'] || raw.$newDataType || raw.$columnDataType || raw.$sequenceName || raw.$constraintName || '';
+
+                                    action.columns.push(column);
+                                }
+
+                                changeset.actions.push(action);
+                            }
+                        }
+                    }
+
+                    return changeset;
+                });
+
+                document.getElementById('tableBody').innerHTML = getTableBody();
+            });
+
+            try {
+                reader.readAsText(event.target.files[0]);
+
+            } catch (e) {
+                alert('Error on parsing file: ' + e);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('fileInput').addEventListener('change', function(e) {
+                readXml(e);
+            });
+        });
+
+        function getTableBody() {
+            let html = '';
+
+            for (const changeset of changesets) {
+                for (const action of changeset.actions) {
+                    for (const column of action.columns) {
+                        html += '<tr>';
+                        if (action.columns.indexOf(column) === 0 && changeset.actions.indexOf(action) === 0) {
+                            html += `
+                              <td rowspan="${ summ(changeset.actions.map((a) => a.columns ? a.columns.length : 0)) }">
+                                ${ changeset.id }
+                              </td>
+                              <td rowspan="${ summ(changeset.actions.map((a) => a.columns ? a.columns.length : 0)) }">
+                                ${ changeset.comment }
+                              </td>
+                            `;
+                        }
+                        if (action.columns.indexOf(column) === 0) {
+                            html += `
+                              <td rowspan="${ action.columns.length }">
+                                ${ i18n(action.type) }
+                              </td>
+                              <td rowspan="${ action.columns.length }">
+                                ${ action.table }
+                              </td>
+                              <td rowspan="${ action.columns.length }">
+                                ${ action.condition }
+                              </td>
+                            `;
+                        }
+                        html += `
+                           <td>${ column.name }</td>
+                           <td>${ column.value }</td>
+                        `;
+                        html += '</tr>';
+                    }
+                }
+            }
+
+            return html;
+        }
+
+        function downloadExcel() {
+            let tableToExcel = (function () {
+                let uri = 'data:application/vnd.ms-excel;base64,',
+                    template = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>{worksheet}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><meta http-equiv="content-type" content="text/plain; charset=UTF-8"/></head><body><table>{table}</table></body></html>',
+                    base64 = function (s) {
+                        return window.btoa(unescape(encodeURIComponent(s)))
+                    },
+                    format = function (s, c) {
+                        return s.replace(/{(\w+)}/g, function (m, p) {
+                            return c[p];
+                        })
+                    },
+                    downloadURI = function (uri, name) {
+                        let link = document.createElement("a");
+                        link.download = name;
+                        link.href = uri;
+                        link.click();
+                    };
+
+                return function (table, name, fileName) {
+                    if (!table.nodeType) table = document.getElementById(table);
+                    let ctx = {worksheet: name || 'Worksheet', table: table.innerHTML};
+                    let resuri = uri + base64(format(template, ctx));
+                    downloadURI(resuri, fileName);
+                }
+            })();
+
+            tableToExcel('changelog-table', 'Database changes', 'Database changes.xls');
+        }
+
+        function downloadCsv() {
+            const separator = ',';
+            const table_id = 'changelog-table';
+            // Quick and simple export target #table_id into a csv
+            // Select rows from table_id
+            var rows = document.querySelectorAll('table#' + table_id + ' tr');
+            // Construct csv
+            var csv = [];
+            for (var i = 0; i < rows.length; i++) {
+                var row = [], cols = rows[i].querySelectorAll('td, th');
+                for (var j = 0; j < cols.length; j++) {
+                    // Clean innertext to remove multiple spaces and jumpline (break csv)
+                    var data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, '').replace(/(\s\s)/gm, ' ')
+                    // Escape double-quote with double-double-quote (see https://stackoverflow.com/questions/17808511/properly-escape-a-double-quote-in-csv)
+                    data = data.replace(/"/g, '""');
+                    // Push escaped string
+                    row.push('"' + data + '"');
+                }
+                csv.push(row.join(separator));
+            }
+            var csv_string = csv.join('\n');
+            // Download it
+            var filename = 'export_' + table_id + '_' + new Date().toLocaleDateString() + '.csv';
+            var link = document.createElement('a');
+            link.style.display = 'none';
+            link.setAttribute('target', '_blank');
+            link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv_string));
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+
+    <style>
+        .changelog-page {
+            padding: 0 10vw;
+        }
+        .changelog-page__header {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .changelog-page__divider {
+            flex: 1 0 auto;
+        }
+        .changelog-page table {
+            width: 100%;
+        }
+        .custom-file-input::-webkit-file-upload-button {
+            visibility: hidden;
+        }
+        .custom-file-input::before {
+            content: 'Select file';
+            display: inline-block;
+            background: linear-gradient(top, #f9f9f9, #e3e3e3);
+            border: 1px solid #999;
+            border-radius: 3px;
+            padding: 5px 8px;
+            outline: none;
+            white-space: nowrap;
+            -webkit-user-select: none;
+            cursor: pointer;
+            text-shadow: 1px 1px #fff;
+            font-weight: 700;
+            font-size: 10pt;
+        }
+        .custom-file-input:hover::before {
+            border-color: black;
+        }
+        .custom-file-input:active::before {
+            background: -webkit-linear-gradient(top, #e3e3e3, #f9f9f9);
+        }
+
+        .custom-button {
+            display: inline-block;
+            background: linear-gradient(top, #f9f9f9, #e3e3e3);
+            border: 1px solid #999;
+            border-radius: 3px;
+            padding: 5px 8px;
+            outline: none;
+            white-space: nowrap;
+            -webkit-user-select: none;
+            cursor: pointer;
+            text-shadow: 1px 1px #fff;
+            font-weight: 700;
+            font-size: 10pt;
+        }
+        .custom-button:hover::before {
+            border-color: black;
+        }
+        .custom-button:active::before {
+            background: -webkit-linear-gradient(top, #e3e3e3, #f9f9f9);
+        }
+    </style>
+</head>
+<body>
+<div class="changelog-page">
+    <div class="changelog-page__header">
+        <div>
+            <input type="file"
+                   id="fileInput"
+                   class="custom-file-input"
+                   accept="text/xml"
+            >
+        </div>
+        <div class="changelog-page__divider"></div>
+        <div>
+            <button class="custom-button" onclick="downloadExcel()">
+                Download XLS
+            </button>
+            <button class="custom-button" onclick="downloadCsv()">
+                Download CSV
+            </button>
+        </div>
+    </div>
+
+    <table id="changelog-table" width="200" border="1" align="center" cellpadding="4" cellspacing="0">
+        <tr>
+            <th>Id</th>
+            <th>Comment</th>
+            <th>Operation</th>
+            <th>Table</th>
+            <th>Condition</th>
+            <th>Column</th>
+            <th>Value</th>
+        </tr>
+        <tbody id="tableBody"></tbody>
+    </table>
+</div>
+</body>
+</html>
