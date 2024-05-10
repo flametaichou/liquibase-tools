@@ -1,8 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>Liquibase to CSV</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="description" content="A set of very doubtful tools for Liquibase">
+    <meta name="keywords" content="Liquibase, Tools, Hacks">
+    <meta name="theme-color" content="#303032">
+    <link rel="icon" type="image/png" sizes="32x32" href="images/favicon.ico">
+    <title>Liquibase tools - Liquibase to XLS</title>
+
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/ui-kit.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fast-xml-parser/4.3.6/fxparser.min.js"></script>
     <script>
@@ -15,6 +26,7 @@
         let parsedXml = {};
         let changesets = [];
 
+        // TODO: configure language
         const codesMap = {
             'sql': 'SQL executed',
             'modifySql': 'Modified SQL',
@@ -48,6 +60,11 @@
         function readXml(event) {
             const reader = new FileReader();
             reader.addEventListener('load', (event) => {
+                if (!event.target || !event.target.result) {
+                    return;
+                }
+
+                document.getElementById('changelogName').innerText = document.getElementById('fileInput').files[0].name;
                 xml = event.target.result;
                 parsedXml = parser.parse(xml);
 
@@ -56,6 +73,7 @@
                     return;
                 }
 
+                // TODO: comments and conditions columns can be empty
                 changesets = parsedXml.databaseChangeLog.changeSet.map((c) => {
                     const changeset = {};
 
@@ -95,7 +113,13 @@
                                         column.name += ` (${raw.$referencedColumnNames})`
                                     }
 
-                                    column.value = typeof raw === 'string' ? raw : raw.$value || raw['#text'] || raw.$newDataType || raw.$columnDataType || raw.$sequenceName || raw.$constraintName || '';
+                                    column.value = typeof raw === 'string' ? raw : raw.$value
+                                        || raw['#text']
+                                        || raw.$newDataType
+                                        || raw.$columnDataType
+                                        || raw.$sequenceName
+                                        || raw.$constraintName
+                                        || '';
 
                                     action.columns.push(column);
                                 }
@@ -168,7 +192,7 @@
         }
 
         function downloadExcel() {
-            let tableToExcel = (function () {
+            const tableToExcel = (function () {
                 let uri = 'data:application/vnd.ms-excel;base64,',
                     template = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>{worksheet}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><meta http-equiv="content-type" content="text/plain; charset=UTF-8"/></head><body><table>{table}</table></body></html>',
                     base64 = function (s) {
@@ -180,151 +204,163 @@
                         })
                     },
                     downloadURI = function (uri, name) {
-                        let link = document.createElement("a");
+                        let link = document.createElement('a');
                         link.download = name;
                         link.href = uri;
+                        link.style.display = 'none';
+                        link.setAttribute('target', '_blank');
                         link.click();
                     };
 
-                return function (table, name, fileName) {
-                    if (!table.nodeType) table = document.getElementById(table);
-                    let ctx = {worksheet: name || 'Worksheet', table: table.innerHTML};
-                    let resuri = uri + base64(format(template, ctx));
+                return function (table, worksheetName, fileName) {
+                    if (!table.nodeType) {
+                        table = document.getElementById(table);
+                    }
+                    const ctx = { worksheet: worksheetName || 'Worksheet', table: table.innerHTML};
+                    const resuri = uri + base64(format(template, ctx));
+
                     downloadURI(resuri, fileName);
                 }
             })();
 
-            tableToExcel('changelog-table', 'Database changes', 'Database changes.xls');
-        }
+            const tableId = 'changelogTable';
+            const worksheetName = 'Database changes';
+            const fileName = 'export_changelog-table' + new Date().toLocaleDateString() + '.xls';
 
-        function downloadCsv() {
-            const separator = ',';
-            const table_id = 'changelog-table';
-            // Quick and simple export target #table_id into a csv
-            // Select rows from table_id
-            var rows = document.querySelectorAll('table#' + table_id + ' tr');
-            // Construct csv
-            var csv = [];
-            for (var i = 0; i < rows.length; i++) {
-                var row = [], cols = rows[i].querySelectorAll('td, th');
-                for (var j = 0; j < cols.length; j++) {
-                    // Clean innertext to remove multiple spaces and jumpline (break csv)
-                    var data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, '').replace(/(\s\s)/gm, ' ')
-                    // Escape double-quote with double-double-quote (see https://stackoverflow.com/questions/17808511/properly-escape-a-double-quote-in-csv)
-                    data = data.replace(/"/g, '""');
-                    // Push escaped string
-                    row.push('"' + data + '"');
-                }
-                csv.push(row.join(separator));
-            }
-            var csv_string = csv.join('\n');
-            // Download it
-            var filename = 'export_' + table_id + '_' + new Date().toLocaleDateString() + '.csv';
-            var link = document.createElement('a');
-            link.style.display = 'none';
-            link.setAttribute('target', '_blank');
-            link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv_string));
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            tableToExcel(tableId, worksheetName, fileName);
         }
     </script>
 
     <style>
         .changelog-page {
-            padding: 0 10vw;
         }
         .changelog-page__header {
             display: flex;
             margin-bottom: 20px;
+            align-items: center;
+            gap: 1em;
+        }
+        .changelog-page__header h3 {
+            margin-block-start: 0;
+            margin-block-end: 0;
         }
         .changelog-page__divider {
             flex: 1 0 auto;
         }
+        .changelog-page__scroll {
+            overflow-x: auto;
+        }
         .changelog-page table {
             width: 100%;
-        }
-        .custom-file-input::-webkit-file-upload-button {
-            visibility: hidden;
-        }
-        .custom-file-input::before {
-            content: 'Select file';
-            display: inline-block;
-            background: linear-gradient(top, #f9f9f9, #e3e3e3);
-            border: 1px solid #999;
-            border-radius: 3px;
-            padding: 5px 8px;
-            outline: none;
-            white-space: nowrap;
-            -webkit-user-select: none;
-            cursor: pointer;
-            text-shadow: 1px 1px #fff;
-            font-weight: 700;
-            font-size: 10pt;
-        }
-        .custom-file-input:hover::before {
-            border-color: black;
-        }
-        .custom-file-input:active::before {
-            background: -webkit-linear-gradient(top, #e3e3e3, #f9f9f9);
+            max-width: 100%;
         }
 
-        .custom-button {
+        .file-input {
+            display: none;
+        }
+        .file-input-btn {
             display: inline-block;
-            background: linear-gradient(top, #f9f9f9, #e3e3e3);
-            border: 1px solid #999;
-            border-radius: 3px;
-            padding: 5px 8px;
-            outline: none;
-            white-space: nowrap;
-            -webkit-user-select: none;
+
+            background-color: var(--gray0);
+            color: var(--gray4) !important;
+            border-radius: 5px;
+            font-weight: bold;
+            line-height: 32px;
             cursor: pointer;
-            text-shadow: 1px 1px #fff;
-            font-weight: 700;
-            font-size: 10pt;
+            text-decoration: none;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+            border: none;
+            padding: 0 0.8em;
         }
-        .custom-button:hover::before {
-            border-color: black;
+        .file-input-btn:hover {
+            background-color: rgba(0, 0, 0, 0.02);
         }
-        .custom-button:active::before {
-            background: -webkit-linear-gradient(top, #e3e3e3, #f9f9f9);
+
+        .file-input-btn:active {
+            background-color: var(--white);
         }
     </style>
 </head>
+
 <body>
-<div class="changelog-page">
-    <div class="changelog-page__header">
-        <div>
-            <input type="file"
-                   id="fileInput"
-                   class="custom-file-input"
-                   accept="text/xml"
-            >
+
+<a href="https://github.com/flametaichou/liquibase-tools" class="github-corner" aria-label="View source on GitHub"><svg width="80" height="80" viewBox="0 0 250 250" style="fill: var(--secondary); color:var(--primary); position: absolute; top: 0; border: 0; right: 0;" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a><style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:500px){.github-corner:hover .octo-arm{animation:none}.github-corner .octo-arm{animation:octocat-wave 560ms ease-in-out}}</style>
+
+<div class="content__wrapper">
+    <div class="content">
+        <div class="header__wrapper">
+            <a href="" class="header">
+                <img src="images/logo.svg"/>
+                <h1>Liquibase tools</h1>
+            </a>
+
+            <ul class="menu">
+                <li><a href="index.html">Hints</a></li>
+                <li><a href="fix-liquibase-checksum.html">Checksums fix</a></li>
+                <li class="active"><a href="liquibase-to-xls.html">Liquibase to XLS</a></li>
+            </ul>
         </div>
-        <div class="changelog-page__divider"></div>
-        <div>
-            <button class="custom-button" onclick="downloadExcel()">
-                Download XLS
-            </button>
-            <button class="custom-button" onclick="downloadCsv()">
-                Download CSV
-            </button>
+
+        <div class="card">
+            <div class="card__title">
+                <h2>Liquibase to XLS</h2>
+            </div>
+            <div class="card__content">
+                <p>
+                    This page can convert Liquibase xml changelogs into a human readable XLS document
+                    (e.g. to attach it as a database changelog to release notes)
+                </p>
+                <div class="changelog-page">
+                    <div class="changelog-page__header">
+                        <h3 id="changelogName">Select changelog.xml file</h3>
+                        <div class="changelog-page__divider"></div>
+                        <div>
+                            <label for="fileInput" class="file-input-btn">
+                                Select file...
+                            </label>
+                            <input type="file"
+                                   id="fileInput"
+                                   class="file-input"
+                                   accept="text/xml"
+                            >
+                        </div>
+                        <button class="primary" onclick="downloadExcel()">
+                            Download XLS
+                        </button>
+                    </div>
+
+                    <div class="changelog-page__scroll">
+                        <table id="changelogTable">
+                            <thead>
+                            <tr>
+                                <th>Id</th>
+                                <th>Comment</th>
+                                <th>Operation</th>
+                                <th>Table</th>
+                                <th>Condition</th>
+                                <th>Column</th>
+                                <th>Value</th>
+                            </tr>
+                            </thead>
+                            <tbody id="tableBody">
+                            <tr>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-
-    <table id="changelog-table" width="200" border="1" align="center" cellpadding="4" cellspacing="0">
-        <tr>
-            <th>Id</th>
-            <th>Comment</th>
-            <th>Operation</th>
-            <th>Table</th>
-            <th>Condition</th>
-            <th>Column</th>
-            <th>Value</th>
-        </tr>
-        <tbody id="tableBody"></tbody>
-    </table>
 </div>
+
 </body>
 </html>
